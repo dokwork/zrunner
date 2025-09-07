@@ -3,11 +3,11 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const module_a = b.addModule("module_a", .{
-        .root_source_file = b.path("example/module_a/main.zig"),
+        .root_source_file = b.path("example/module_a/package_a.zig"),
         .target = target,
     });
     const module_b = b.addModule("module_b", .{
-        .root_source_file = b.path("example/module_b/main.zig"),
+        .root_source_file = b.path("example/module_b/package_b.zig"),
         .target = target,
     });
 
