@@ -1,11 +1,11 @@
 const std = @import("std");
 
 test "passed test" {
-    try std.testing.expectEqual(4, 2 + 2);
+    try std.testing.expect(true);
 }
 
 test "failed test" {
-    try std.testing.expectEqual(5, 2 + 2);
+    try std.testing.expect(false);
 }
 
 test "skipped test" {

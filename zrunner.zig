@@ -1,25 +1,44 @@
-// MIT License
-// 
-// Copyright (c) 2025 Vladimir Popov <vladimir@dokwork.ru>
-// 
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-// 
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-// 
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
+//! zrunner - is a simple test runner for zig with detailed report
+//!           and support of selective running tests in modules.
+//!
+//! Usage:
+//!
+//!   If the build step to run tests is named "test":
+//!   zig build test -- [options]
+//!
+//! Options:
+//!
+//!   -m <str>, --modules-only=<str>    Run only tests from modules whose names contain a given substring <str>.
+//!   -t <str>, --tests-only=<str>      Run only tests  whose names contain a given substring <str>.
+//!   --failed-only                     Include in the report only failed tests.
+//!   --no-stack-trace                  Do not print a stack trace of failed tests.
+//!   --colors=<zon>                    Parses <zon> as `FileReporter.Colors` and uses them printing test report.
+//!                                     See the source code of `FileReporter.Colors` for more details.
+//!   --no-colors                       Do not use ascii escape code to make output colorful.
+//!                                     Ignore the '--colors' option.
+//!   --stdout                          Print output to the stdout. Default.
+//!   --stderr                          Print output to the stderr.
+//!   --file=<file path>                Create and open a file <file path> to print an output to it.
+//!
+//! Configuration example:
+//! ```zig
+//!   // Prepare zrunner
+//!   const test_runner = std.Build.Step.Compile.TestRunner{
+//!       .path = b.path("zrunner.zig"),
+//!       .mode = .simple,
+//!   };
+//!   const tests_module = b.addTest(.{
+//!       .name = "my module", // this name is used in the test report
+//!       .root_module = my_module,
+//!       .test_runner = test_runner,
+//!   });
+//!   const run_module_tests = b.addRunArtifact(tests_module);
+//!   // this forces using colors in some cases when they would be omitted otherwise
+//!   run_module_tests.setEnvironmentVariable("CLICOLOR_FORCE", "true");
+//! ```
+//!
+//! Version: 1.0.0
+//!
 const std = @import("std");
 const builtin = @import("builtin");
 const TestFn = std.builtin.TestFn;
@@ -71,6 +90,9 @@ pub fn main() !void {
         } else if (std.mem.startsWith(u8, arg, "--file=")) {
             const file = try std.fs.cwd().createFile(arg[7..], .{ .truncate = false });
             custom_out = std.fs.File.writer(file, &io_buffer);
+        } else {
+            std.debug.print("Unsupported option '{s}'.\n", .{arg});
+            std.process.exit(1);
         }
     }
 
@@ -131,7 +153,7 @@ pub fn run(
     };
 
     try reporter.writeTitle(report.process_name, test_filter, tests.len);
-    try runAllTets(arena, tests, &report, no_stack_trace);
+    try runTests(arena, tests, &report, no_stack_trace);
     try writeTestResults(arena, reporter, report, failed_only);
     try reporter.writeSummary(
         report.passed_count,
@@ -143,7 +165,7 @@ pub fn run(
     if (report.failed_count != 0 or report.is_mem_leak) std.process.exit(1);
 }
 
-fn runAllTets(arena: *std.heap.ArenaAllocator, tests: []const TestFn, report: *Report, no_stack_trace: bool) !void {
+fn runTests(arena: *std.heap.ArenaAllocator, tests: []const TestFn, report: *Report, no_stack_trace: bool) !void {
     if (tests.len == 0) return;
 
     var total_timer: std.time.Timer = try std.time.Timer.start();
@@ -251,15 +273,14 @@ const Test = struct {
                 var str: []u8 = &.{};
                 if (!no_stack_trace) {
                     if (@errorReturnTrace()) |stack_trace| {
-                        str = try arena.allocator().alloc(u8, 2048);
-                        var fixed_writer = std.io.Writer.fixed(str);
+                        var stack_trace_writer = std.io.Writer.Allocating.init(arena.allocator());
                         // skip frame from the testing.zig:
                         const st = std.builtin.StackTrace{
                             .index = stack_trace.index - 1,
                             .instruction_addresses = stack_trace.instruction_addresses[1..],
                         };
-                        try st.format(&fixed_writer);
-                        try fixed_writer.flush();
+                        try st.format(&stack_trace_writer.writer);
+                        str = stack_trace_writer.written();
                     }
                 }
                 test_result = TestResult{
@@ -389,7 +410,8 @@ const FileReporter = struct {
 
     const Colors = struct {
         title: Color = .cyan,
-        no_tests: Color = .black,
+        process_name: Color = .yellow,
+        no_tests: Color = .dim,
         namespace: Color = .cyan,
         test_name: Color = .cyan,
         filter: Color = .yellow,
@@ -401,6 +423,8 @@ const FileReporter = struct {
 
         pub const default: Colors = .{};
     };
+
+    const border = "=" ** 65;
 
     file_writer: std.fs.File.Writer,
     config: std.io.tty.Config,
@@ -419,18 +443,18 @@ const FileReporter = struct {
     ) anyerror!void {
         // move to the next line and cleanup output settings:
         _ = try self.file_writer.interface.write("\r\n\x1b[0K");
+        try self.colorizeLine(self.colors.title, "{s}", .{border});
 
         if (tests_count == 0) {
             try self.colorizeLine(self.colors.no_tests, "No one test was found in {s}", .{process_name});
             return;
         }
+        try self.colorize(self.colors.title, "Run ", .{});
+        try self.colorizeLine(self.colors.process_name, "{s}", .{process_name});
         if (filter) |f| {
-            try self.colorizeLine(self.colors.title, "{s}", .{process_name});
             try self.colorize(self.colors.no_tests, "Only tests contain ", .{});
             try self.colorize(self.colors.filter, "'{s}'", .{f});
             try self.colorizeLine(self.colors.no_tests, " in the name are running", .{});
-        } else {
-            try self.colorizeLine(self.colors.title, "{s}", .{process_name});
         }
         // to print the title before any output from tests
         try self.file_writer.interface.flush();
@@ -447,26 +471,30 @@ const FileReporter = struct {
     pub fn writeTestResult(self: *FileReporter, test_result: TestResult) anyerror!void {
         switch (test_result) {
             .passed => |result| {
-                try self.colorizeLine(
+                try self.colorize(
                     self.colors.passed,
                     " PASSED in {f}",
                     .{result.duration},
                 );
             },
             .failed => |result| {
-                try self.colorizeLine(
+                try self.colorize(
                     self.colors.failed,
                     " FAILED in {f}: {s}",
                     .{ result.duration, @errorName(result.err) },
                 );
-                try self.file_writer.interface.writeAll(result.stack_trace);
             },
             .skipped => {
-                try self.colorizeLine(self.colors.skipped, " SKIPPED", .{});
+                try self.colorize(self.colors.skipped, " SKIPPED", .{});
             },
         }
         if (test_result.isMemoryLeak()) {
-            try self.colorizeLine(self.colors.memory_leak, "   MEMORY LEAK DETECTED", .{});
+            try self.colorizeLine(self.colors.memory_leak, " MEMORY LEAK", .{});
+        } else {
+            try self.file_writer.interface.writeByte('\n');
+        }
+        if (test_result == .failed) {
+            try self.file_writer.interface.writeAll(test_result.failed.stack_trace);
         }
     }
 
@@ -481,8 +509,6 @@ const FileReporter = struct {
         if (passed + skipped + failed == 0 and !is_mem_leak)
             return;
 
-        // move to the next line and cleanup output settings:
-        const border = "=" ** 60;
         try self.colorize(
             self.colors.summary,
             border ++ "\nTotal {d} tests were run in {f}: ",
@@ -495,7 +521,7 @@ const FileReporter = struct {
         if (skipped > 0)
             try self.colorize(self.colors.skipped, "{d} skipped;", .{skipped});
         if (is_mem_leak)
-            try self.colorize(self.colors.memory_leak, "MEMORY LEAK", .{});
+            try self.colorize(self.colors.memory_leak, " MEMORY LEAK", .{});
 
         // move to the next line and cleanup output settings:
         _ = try self.file_writer.interface.write("\r\n\x1b[0K");
