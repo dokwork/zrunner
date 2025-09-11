@@ -23,8 +23,6 @@ pub fn build(b: *std.Build) void {
         .test_runner = test_runner, // use our runner
     });
     const run_module_a_tests = b.addRunArtifact(tests_module_a);
-    // this forces using colors in some cases when they would be omitted otherwise
-    run_module_a_tests.setEnvironmentVariable("CLICOLOR_FORCE", "true");
 
     const tests_module_b = b.addTest(.{
         .name = "module_b", // this name is used in the report
@@ -32,8 +30,6 @@ pub fn build(b: *std.Build) void {
         .test_runner = test_runner, // use our runner
     });
     const run_module_b_tests = b.addRunArtifact(tests_module_b);
-    // this forces using colors in some cases when they would be omitted otherwise
-    run_module_b_tests.setEnvironmentVariable("CLICOLOR_FORCE", "true");
 
     // This is very important configuration!
     // Without it the test runner is not able to handle arguments.

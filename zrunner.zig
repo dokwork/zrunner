@@ -33,8 +33,6 @@
 //!       .test_runner = test_runner,
 //!   });
 //!   const run_module_tests = b.addRunArtifact(tests_module);
-//!   // this forces using colors in some cases when they would be omitted otherwise
-//!   run_module_tests.setEnvironmentVariable("CLICOLOR_FORCE", "true");
 //! ```
 //!
 //! Version: 1.0.0
@@ -112,7 +110,7 @@ pub fn main() !void {
         .default;
 
     var reporter: FileReporter = if (custom_out) |out|
-        .{ .file_writer = out, .config = std.io.tty.Config.detect(out.file), .colors = colors }
+        .{ .file_writer = out, .colors = colors }
     else
         .stdout(&io_buffer, colors);
 
@@ -427,12 +425,12 @@ const FileReporter = struct {
     const border = "=" ** 65;
 
     file_writer: std.fs.File.Writer,
-    config: std.io.tty.Config,
     colors: Colors,
+    config: std.io.tty.Config = .escape_codes,
 
     pub fn stdout(buffer: []u8, colors: Colors) FileReporter {
         const file = std.fs.File.stdout();
-        return .{ .file_writer = file.writer(buffer), .config = std.io.tty.Config.detect(file), .colors = colors };
+        return .{ .file_writer = file.writer(buffer), .colors = colors };
     }
 
     pub fn writeTitle(

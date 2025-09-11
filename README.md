@@ -52,15 +52,6 @@ It's better to setup a name for your `tests_module` explicitly. By default, all 
 modules have a name "test". In multi-module project an explicit name helps to run tests
 only from particular modules.
 
-ZRunner uses [std.Io.tty](https://ziglang.org/documentation/0.15.1/std/#std.Io.tty)
-to generate a colorfull output. It may be reasonable to set up an environment variable
-"CLICOLOR_FORCE" to force coloring output in some cases:
-```zig
-run_module_tests.setEnvironmentVariable("CLICOLOR_FORCE", "true");
-```
-See [std.Io.tty.Config.detect](https://ziglang.org/documentation/0.15.1/std/#std.Io.tty.Config.detect)
-for more details.
-
 You can find complete example of configuration here: [build.zig](build.zig).
 
 ## Options
@@ -104,8 +95,7 @@ _You can try every provided option running tests from this [example](example/)._
 ## Colors
 
 ZRunner uses [`std.Io.tty.Color`](https://ziglang.org/documentation/0.15.1/std/#std.Io.tty.Color) 
-to highlight a test report output. The follow
-highlight groups are used: 
+to highlight a test report output. The follow highlight groups are used: 
   - `title`, 
   - `process_name`, 
   - `no_tests`,
@@ -120,7 +110,7 @@ highlight groups are used:
 
 You can override them by passing an option `--colors=<zon>`,where &lt;zon> is a
 representation of the [Colors](zrunner.FileReporter.Colors) structure. For
-example, let's change couple of default colors to make highlight groups more
+example, let's change a couple of default colors to make highlight groups more
 obvious:
 ```zig
 zig build test -- --no-stack-trace --tests-only=test --colors=".{.title=.green, .namespace=.blue}" 2> /dev/null
